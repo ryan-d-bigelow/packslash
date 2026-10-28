@@ -1,0 +1,1 @@
+i want to connect to the slack and linear mcps (web mcps not local)
