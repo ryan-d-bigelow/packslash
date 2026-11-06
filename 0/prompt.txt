@@ -1,0 +1,22 @@
+I want you to full-stop on https://linear.app/wevo/issue/WEV-4203
+
+---
+
+Delegated task node:delegated-task:command%3Amcp%3Aca8d6362-be9a-45c3-ba7f-fd787602e6d2%3Adelegate-task%3Awev4203-sol-r1 (Sol review r1 WEV-4203 report script) [completed]:
+VERDICT: APPROVE
+
+S1 [nit] scripts/report_company_pulses.py:498 The orphan-mirror fallback exceeds the annotation-only intent and crashes `summarize()`: its blank `growthos_receipts_succeeded` is compared with `1`. Confirmed with a pure unit check. Fix: skip unmatched mirrors and remove `_orphan_mirror_row`.
+
+---
+
+Delegated task node:delegated-task:command%3Amcp%3A8e3b05eb-91a7-47c1-9633-917d4dcbb1b1%3Adelegate-task%3Awev4203-sol-r2 (Sol review r2 WEV-4203 report script) [completed]:
+VERDICT: APPROVE
+S1 resolved: Unmatched mirrors are skipped before row creation and listed in the summary, eliminating the summarize() crash and excluding them from draft imports. Regression test covers this path; all 8 tests pass. No new findings in changed code.
+
+---
+
+great all done update linear accordingly (with the resources we created)
+
+---
+
+can you actually merge that usage file (the script) for future reference
