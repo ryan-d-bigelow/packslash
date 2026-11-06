@@ -1,0 +1,41 @@
+Act as the research sub-agent for this task.
+
+You are on Ryan's MacBook Pro, in /Users/ryanbigelow/source/wevo/repos. A previous agent on this machine already scoped production quant data with aggregate-only, read-only queries. Reuse EXACTLY its access path and guards: the pod-exec runner scripts and notes in /tmp/wevo-ft-scope/ (q.sh, runpy.py, runnode.js), its memory note about the Artemis read replica, kubectl context prod, namespace duploservices-prod, the Artemis replica `duploartemis-prod-v2-replica` via deploy/artemis, and Aurora via deploy/customer-api. Do NOT use the ~/.pgpass superuser entry. This is a SCOPING task, not data access.
+
+HARD RULES:
+- Aggregate metadata only: COUNT, COUNT DISTINCT, MIN/MAX of dates, length or octet_length percentiles, jsonb_array_length or vector dimension via catalog or aggregate, and pg_total_relation_size or reltuples.
+- NEVER print or export row contents: no names, ids, text, embeddings, or JSON values.
+- Read-only: `default_transaction_read_only = on`, statement_timeout of 60 s or less, lock_timeout of 5 s. Prefer the Artemis replica where the table exists there. Keep Aurora queries narrow because it has no replica.
+- Change nothing in repos, infra, or config, and commit nothing. Scratch notes go in /tmp/wevo-tag-scope/ only.
+
+CONTEXT: Pulse is removing its runtime dependency on customer-api and Artemis for tag detection (Asset / Industry / Product) and for benchmarks (percentile of a Pulse's Intuitive / Trusted / Valuable / topLevel displayed scores within a tag cohort of historical Pulses). Pulse will serve both from a periodic read-only snapshot of (1) the tag catalog with embeddings and (2) historical per-Pulse displayed scores with tag ids. We need sizes to choose storage (repo file vs S3 vs DB table) and a refresh cadence.
+
+From code, the cohort source in customer-api is wevo-customer-api/src/data/pulseTags.js, around lines 103 and 406-458. It joins wevo.pulse_to_tag (pulse_id, tag_id, deleted_at), wevo.pulse_tag (id, type, is_active), and wevo.automated_insight_session_result (automated_insight_session_id, quant, created_at, segment_id), with non-empty quant, null segment_id, an undeleted relation, and an active tag. It collapses by Pulse. Confirm in which database each table lives (Aurora vs Artemis) before querying.
+
+Questions (numbers plus exact SQL):
+1. Tag catalog (pulse_tag; see wevo-artemis src/records/pulse_tag.py):
+   - total rows, active undeleted rows by type
+   - embedding column type and dimension; one aggregate on jsonb_array_length or the column type, never values
+   - table size
+   - rows created or updated per month over the last 24 months
+2. Tag assignments (pulse_to_tag):
+   - total rows, undeleted rows, distinct pulses, tags-per-pulse distribution, and the share of pulses with all three tag types
+3. Benchmark cohort (replicate the pulseTags.js filter as a COUNT only):
+   - eligible scored Pulses, total and by month of result created_at
+   - count with product+industry+asset, with 2 types, and with 1
+   - how many distinct cohorts customer-api would form (triples, pairs, singles, global), how many have at least 10 samples, and p50 / p90 / max cohort size. Use GROUP BY on tag ids inside a CTE and output only counts and percentiles.
+4. pulse_benchmark table: rows, by month, and size. From code, is it read at runtime?
+5. Growth: eligible Pulses added per week over the last 12 weeks.
+6. Snapshot size estimates (label them estimate, show the arithmetic):
+   - (a) tag catalog with embeddings as compact JSON
+   - (b) benchmark samples as compact JSON rows of {pulse key, created_at, 4 scores, 3 tag ids}
+
+Deliverable: a concise report with tables, plus a recommendation for storage and refresh cadence from the numbers. Confirm that only aggregate queries ran.
+
+---
+
+Added constraint from Ryan: these are live production databases, so do not load them.
+- Use the Artemis read replica for every table that exists there.
+- Aurora (customer-api) has no replica. On Aurora, run only cheap catalog queries (pg_class reltuples, pg_total_relation_size) and small indexed COUNTs on pulse_tag and pulse_to_tag. Do NOT run any query that detoasts automated_insight_session_result.quant on Aurora, and no full-table GROUP BY over it.
+- If the cohort sizes need quant presence, compute them on the Artemis replica if that data exists there. Otherwise estimate from catalog stats and the prior agent's existing counts in /tmp/wevo-ft-scope/, and label the result as an estimate.
+- Before any non-trivial query, check CloudWatch CPU for the target instance, using the same read-only AWS profile. Skip the query if CPU exceeds 50%.
