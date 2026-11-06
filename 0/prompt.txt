@@ -1,0 +1,117 @@
+Act as the implementation sub-agent for this task.
+
+You are on Ryan's MacBook Pro, in /Users/ryanbigelow/source/wevo/repos. Ryan has authorized exporting production quant training data for internal model improvement (decision 2026-11-03). A prior agent scoped this data with aggregate queries; read its report in /tmp/wevo-ft-scope/ and its memory note for the access paths (kubectl context prod, namespace duploservices-prod, the Artemis read replica duploartemis-prod-v2-replica via deploy/artemis, AWS profile duplo.argus.wevo.ai for S3 metadata).
+
+## Goal
+Build a training set of (exact scoring document, fine-tune score) pairs that Artemis's fine-tuned gpt-4o-mini scorers produced. They will train a mapping that replaces those models (Intuitive, Trusted, Valuable; base and custom-audience variants).
+
+## Live-system safety (most important)
+These are live production systems. Ryan explicitly asked that we not overload the production databases.
+- PRIMARY SOURCE: S3 chat logs in the Artemis chat-log bucket (`duploservices-prod-automated-insight-session-...`, prefix `production/`). They put no load on any database.
+  - Each Pulse folder may contain `create-quant-reason/{Intuitive,Trusted,Valuable}.txt`.
+  - From Artemis code (wevo-artemis src/services/automated_insight_session/pipelines/experience_vision.py _generate_quant_reason and save_chat), each chat holds the rater system message, then the user scoring document (GENERATE_SCORE_PROMPT wrapping the experience document, with the target audience appended for custom audiences), then the assistant message with the fine-tune's trimmed mean score as a string, then the reason turns.
+  - Read save_chat to learn the exact file format before parsing.
+- Throttle S3: at most 8 concurrent GETs, with a token-bucket cap of about 50 requests per second.
+- DATABASE READS: only if needed, for metadata the chats lack (for example result created_at for the 2024-09-17 cutoff, or to cross-check labels on a small sample). Use ONLY the Artemis read replica.
+  - Never use Aurora, the Artemis primary, or pulse_db for bulk reads.
+  - Keyset pagination, 100 rows per query, 2 s or more pause between batches, and select only the needed columns or JSON paths.
+  - default_transaction_read_only on, statement_timeout 60 s, lock_timeout 5 s.
+  - Before and during the run, check replica lag and CPU via CloudWatch, using the same AWS profile, read-only. If replica lag exceeds 30 s or CPU exceeds 60%, pause; if it persists 5 minutes, stop and report.
+  - Run the heavy part off-peak if possible, and report the time window you used.
+- Do not use the ~/.pgpass superuser entry. Write nothing to any production system.
+
+## Data handling
+- Write the export ONLY to ~/wevo-quant-training/ (chmod 700). This directory must be outside the repos and outside any iCloud, Dropbox, or Google Drive synced folder; verify that. Never commit it. Never paste content into chat, reports, or logs. Print only counts, sizes, and percentiles.
+- Format: JSONL, one row per (session folder, diagnostic), with fields:
+  - folder key hash: sha256 of the folder name, not the raw name
+  - diagnostic
+  - segment: "audience" if the scoring document contains the Artemis target-audience section, else "base". Check the exact marker in quant_experience.append_target_audience_to_experience_document.
+  - scoring_document (exact text)
+  - experience_document (the scoring document minus the GENERATE_SCORE_PROMPT wrapper; use the vendored template in /Users/ryanbigelow/source/wevo/repos/wevo-pulse/backend/app/services/local_quant/prompts/generate_score_prompt.txt to strip it)
+  - fine_tune_score (float parsed from the assistant reply)
+  - object LastModified date
+- Keep only folders whose quant-reason chats are dated on or after 2024-09-17, when the current six fine-tunes went in.
+
+## Steps
+1. Pilot: 200 folders.
+   - Validate parsing: the scoring document starts as expected, the score parses, and the segment detection works.
+   - Report counts, parse failures by cause, and score distribution per (segment, diagnostic).
+   - Report measured throughput, and confirm DB load was zero, or replica-only and tiny.
+2. If the pilot is clean, run the full export over all `production/` folders. It must be resumable: track processed folder hashes in a local state file.
+   - Report: totals per (segment, diagnostic), date range, distinct folders, the document-length percentiles, duplicates (identical scoring_document hashes), the runtime, and the S3 request count.
+3. Do NOT start embeddings or model training. A later task will do that on this machine.
+
+## Report
+Counts and percentiles only. Include:
+- the exact S3 and SQL operations performed
+- the load guard settings, and whether any guard ever triggered
+- the data location and its permissions
+- confirmation that no content left this machine
+
+---
+
+<task-notification>
+<task-id>bh0f8oce1</task-id>
+<tool-use-id>toolu_012S6d3TjsoZjWiT7hPqTbaS</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-ryanbigelow-source-wevo-repos/d9902808-08dc-457c-9a55-cfb25dfa90a1/tasks/bh0f8oce1.output</output-file>
+<status>completed</status>
+<summary>Background command "Report the first replica chunk result when it lands" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Load guard correction from the parent. Apply it before the next replica chunk.
+- Replica reads: 100 rows per query, with a pause of at least 2 s between queries; not 2,500-row chunks.
+- Lag guard:
+  - Measure the replica's normal idle lag over 10 minutes with no export running (CloudWatch ReplicaLag), and report min, p50, p95, and max.
+  - Use max(30 s, idle p95 + 10 s) as the guard. Pause while lag is above it; stop if it stays above for 5 minutes.
+  - The 36 s reading was above the agreed 30 s guard and should have paused.
+- Keep CPU under 60%.
+- Prefer the S3 chat logs for everything they cover. Use the replica only for metadata S3 cannot give.
+Reply with the idle baseline, the new settings, and the remaining plan, then continue.
+
+---
+
+<task-notification>
+<task-id>bbjprujko</task-id>
+<summary>Monitor event: "S3 export completion/errors and replica date-pull chunks/guard"</summary>
+<event>2026-11-03T16:01:26 fetch done: 11633 folders, 34869 files, 401.3 MB, 697s, 50.1 files/s; requests: LIST 890, GET 34869, total 35759; wall 838s</event>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>boq4gzbk3</task-id>
+<tool-use-id>toolu_016iNRGyRpC16WQL9S8WM6Po</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-ryanbigelow-source-wevo-repos/d9902808-08dc-457c-9a55-cfb25dfa90a1/tasks/boq4gzbk3.output</output-file>
+<status>completed</status>
+<summary>Background command "Measure 10-minute idle replica lag baseline once the window has elapsed" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b7ydzte2s</task-id>
+<tool-use-id>toolu_01Bpg9VB3M7J64m9UjUF36pP</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-ryanbigelow-source-wevo-repos/d9902808-08dc-457c-9a55-cfb25dfa90a1/tasks/b7ydzte2s.output</output-file>
+<status>completed</status>
+<summary>Background command "Report the first resumed replica group and its guard reading" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbjprujko</task-id>
+<summary>Monitor event: "S3 export completion/errors and replica date-pull chunks/guard"</summary>
+<event>[Monitor expired after 30m with 1 event delivered. Re-arm it if you still need the watch.]</event>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bbfan9sa4</task-id>
+<tool-use-id>toolu_01HuFDJcGbA9PEHfZfC26pzb</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-ryanbigelow-source-wevo-repos/d9902808-08dc-457c-9a55-cfb25dfa90a1/tasks/bbfan9sa4.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for the replica date pull to finish and summarize guard readings" completed (exit code 0)</summary>
+</task-notification>
