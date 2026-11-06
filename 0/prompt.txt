@@ -1,0 +1,55 @@
+Act as the research sub-agent for this task.
+
+You are on Ryan's MacBook Pro, in /Users/ryanbigelow/source/wevo/repos. It contains wevo-artemis, wevo-pulse, wevo-customer-api, infrastructure, db-migrations, and more. This machine has production access for WEVO. This is a SCOPING task, not data access.
+
+HARD RULES:
+- Only aggregate metadata: COUNT, MIN/MAX of dates, length percentiles via length() or octet_length(), table and index sizes via pg_total_relation_size or pg_class reltuples.
+- NEVER select, print, copy, export, or summarize row contents: no text, JSON values, URLs, emails, names, or ids.
+- Strictly read-only: no INSERT, UPDATE, DELETE, or DDL. Prefer a read replica and a read-only role if one exists, and use `SET default_transaction_read_only = on`.
+- Keep queries light: statement_timeout of 60 s or less. Filter on indexed columns, and use reltuples estimates for very large tables.
+- If production access needs credentials you don't already have, an elevation, or anything beyond existing approved read-only access, STOP and report what would be needed. Do not request or create credentials.
+- Do not change any repo, infra, or config. Do not commit anything. Write nothing besides your own scratch notes.
+- First find out how this machine reaches the production databases: AWS/Duplo profiles, existing scripts or docs in these repos, ~/.pgpass entries for read replicas. Report the path you used without printing secrets.
+
+CONTEXT: The six fine-tuned gpt-4o-mini models that Artemis uses to score Pulse quant are being retired, and OpenAI is retiring fine-tuning entirely. We are replacing them with a frontier model plus a learned mapping trained on fine-tune labels. Each label is the fine-tune's trimmed mean score per diagnostic (Intuitive, Trusted, Valuable) for an "experience document": text summaries plus image summaries of a Pulse's pages. We want to know whether production already holds enough (input document, fine-tune score) pairs to train that mapping. Today we have 71 pages from public sites, and the learning curve was still improving at 56 training pages.
+
+Questions. Answer each with numbers and the exact SQL you ran.
+
+A. Artemis production DB (wevo-db; schema `wevo`; see wevo-artemis `src/records/automated_insight_session*.py` and `scripts/pulse_scores.py`, which contains a past query on this data):
+1. Count of `automated_insight_session_result` rows with non-null `quant`, by year-month of created_at, and split by `automated_insight_session.type` (experience vs others).
+2. Of those, how many have per-trial samples, i.e. `quant->'scores'->0->'data'->'sample'` present, and how many carry `quant ? 'narrative_grounding'`? Use jsonb existence operators only.
+3. Per-asset inputs needed to rebuild the experience document:
+   - count of results whose session's assets all have non-null `text_extract_summary` and `image_summary` (find the per-asset result table)
+   - the assets-per-session distribution (p50, p90, max)
+   - length percentiles of those two fields (length() only)
+4. Segment or tailored results with custom audiences (segment.is_generated = false): count with quant. These are the audience fine-tunes' labels.
+5. Pulse-legacy quant tasks (task type `pulse_legacy_quant` in the Artemis tasks table):
+   - count of completed tasks, by month
+   - presence of the payload `experience_document` and of the result `quant`, checked by existence only
+   - octet_length percentiles of the payload
+6. Are the source screenshots retained in S3 for these sessions? Answer from code and config, or an S3 prefix object count, without downloading anything.
+
+B. Pulse production DB (wevo-pulse; see backend/app/models):
+1. legacy_session_findings: count with non-empty quant_json, by month, and how many have quant_json ? 'narrativeGrounding'.
+2. Task rows for `legacy.findings.assets.prepare` with output_data ? 'experience_document': count, plus octet_length percentiles of that field.
+3. experience_score (native scores): count by model id, especially ft:gpt-4o-mini-2024-07-18:wevo::A6g05FYo, by month.
+4. Table sizes for the tables above.
+
+C. Data governance: from repo docs and policies, what restrictions apply to using customer experience documents and scores as training data for an internal model? Who owns that decision? Report what the docs say.
+
+Deliverable: a concise report.
+- A table per section with counts and date ranges.
+- Which data sets look usable for training, how many (document, fine-tune score) pairs each would give, and what is missing (for example, documents without scores or scores without inputs).
+- The access path used.
+- Confirmation that only aggregate queries ran.
+Label every number as measured, with its query. If you could not measure something, say why.
+
+---
+
+<task-notification>
+<task-id>bk3i34wdk</task-id>
+<tool-use-id>toolu_01RtpAGEEA3esnJXHXCvJqwt</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-ryanbigelow-source-wevo-repos/4b514268-156f-4145-b9a9-b0a7b69edac1/tasks/bk3i34wdk.output</output-file>
+<status>completed</status>
+<summary>Background command "Systematic 100-prefix S3 sample, counts only" completed (exit code 0)</summary>
+</task-notification>
