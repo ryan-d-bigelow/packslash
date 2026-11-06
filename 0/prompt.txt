@@ -1,0 +1,86 @@
+Act as the implementation sub-agent for this task.
+
+You are on Ryan's MacBook Pro, in /Users/ryanbigelow/source/wevo/repos. Ryan approved a read-only production snapshot of (1) the Pulse tag catalog and (2) the benchmark cohort samples, on 2026-11-03. Neither includes customer page content.
+
+Reuse the access path, guards, and findings of the prior agents: /tmp/wevo-tag-scope/report.md and *.sql, /tmp/wevo-ft-scope/, and the memory notes for the Artemis read replica and Ryan's query-load rules.
+
+## Live-system safety (mandatory)
+These are live production databases; do not load them.
+- Read the catalog from the Artemis READ REPLICA, duploartemis-prod-v2-replica via deploy/artemis.
+- The cohort samples must come from Aurora (customer-api; it has no replica), because the cohort source rows live there.
+  - Run it off-peak (US night). Report the window.
+  - Use keyset batches of 500 result rows, with a 3 s pause between batches.
+  - SELECT only the needed JSON paths (quant scores name and score, quant average, created_at, and the joined tag ids). Note jsonb detoasting still reads the value; keep batches small.
+  - Before every 10 batches, check CloudWatch CPU for the Aurora writer. Pause if CPU exceeds 40%; stop if it persists 5 minutes.
+- default_transaction_read_only on, statement_timeout 60 s, lock_timeout 5 s. No writes anywhere in production. Do not use ~/.pgpass.
+
+## What to export (mirror customer-api exactly)
+Read wevo-customer-api/src/data/pulseTags.js (around lines 100-460: the cohort SQL, the collapse by Pulse, null-to-zero coercion, the legacy rescaling inputs) and replicate its filter exactly:
+- non-empty quant
+- null segment_id
+- undeleted pulse_to_tag
+- active pulse_tag
+- result created_at, not the session's
+
+1. Catalog: every pulse_tag row with id, name, type, is_active, deleted_at, description, created_at, updated_at, and embedding. Write two files:
+   - pulse_tags.json: an ordered list of objects without the embedding
+   - pulse_tag_embeddings.f32: row-major little-endian float32, in the same order, with a header-free layout of 185 × 3072, plus the dimension in pulse_tags.json metadata
+   Verify the float32 round trip against the jsonb values with a max abs error report; do not print values.
+2. Samples: one row per (Pulse, result) row customer-api's query returns, BEFORE its JS collapse step, so Pulse can reproduce the collapse.
+   - Fields: pulse_key = sha256 of "pulse:" plus pulse id (never the raw id), result_key = sha256 of the result id, created_at, the scores Intuitive, Trusted, and Valuable (score values as stored), topLevel (quant average), tag_id, tag_type.
+   - Also record the exact row order as the SQL returns it. If customer-api's query has no ORDER BY, note that order is undefined and save the order you got.
+   - Write samples.jsonl.gz.
+
+## Output and handling
+- Write to ~/wevo-quant-training/reference/ (chmod 700, outside any synced folder).
+- Report counts that match the prior scoping: 185 tags; about 28,834 eligible Pulses; tag-type distribution.
+- Catalog delivery: create a git branch in /Users/ryanbigelow/source/wevo/repos/wevo-pulse named local-quant-reference-catalog, based on origin/feat/local-quant-tags-benchmarks; fetch first. Add ONLY backend/app/services/local_quant/reference/pulse_tags.json and pulse_tag_embeddings.f32, plus a README.md in that folder stating the source, the date, and that this is the static 185-tag catalog with no customer data. Commit with message "data(local-quant): Pulse tag catalog snapshot (185 tags, text-embedding-3-large)" and push the branch to origin. Do NOT include samples in git.
+- Keep samples.jsonl.gz only on this machine. Do not upload it anywhere.
+
+## Report
+- exact SQL and the batch and CPU log summary
+- counts
+- file sizes
+- the float32 verification
+- the catalog branch name and commit sha
+- confirmation of no writes and no content printed
+
+---
+
+Ryan approved running the samples export NOW, throttled; the US-night window is not required. He is logging in with duploctl jit on this machine.
+
+1. Check once a minute, for up to 30 minutes, whether prod kube access works. Use a trivial read-only check, for example `kubectl --context prod -n duploservices-prod get deploy customer-api -o name`. Do not try to log in yourself. If access never arrives, report that and stop.
+2. Once access works, run ~/wevo-quant-training/reference/log/run_samples_export.sh with the gates you prepared: CPU over 40% pauses, 5 minutes over stops, 3 s between batches, the resume cursor. Report the CPU readings you saw.
+3. Run finalize_samples.py, then bundle_commit.sh for the window you used. Do NOT bypass git hooks: no --no-verify. Let the repo's commit hooks run. If a hook fails, report the error instead of skipping it. The same rule applies to the earlier catalog commit: re-create that commit normally if needed, so the final branch tip passed the hooks.
+4. Report:
+   - rows exported, distinct pulse_keys and result_keys, the tag-type distribution
+   - samples.jsonl.gz size and sha256
+   - the final branch sha
+   - confirmation of read-only and no content printed
+
+---
+
+<task-notification>
+<task-id>bi4cr1a1s</task-id>
+<tool-use-id>toolu_01Bk1nTF1b51vVbqBHUT7wZG</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-ryanbigelow-source-wevo-repos/c735aab9-4d0c-46e4-b5eb-a71ab80a0213/tasks/bi4cr1a1s.output</output-file>
+<status>completed</status>
+<summary>Background command "Poll prod kube access once a minute for up to 30 minutes" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bhomojr3h</task-id>
+<tool-use-id>toolu_019ZLvhD71cwxRAGP2h2BoEY</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-ryanbigelow-source-wevo-repos/c735aab9-4d0c-46e4-b5eb-a71ab80a0213/tasks/bhomojr3h.output</output-file>
+<status>completed</status>
+<summary>Background command "Run the keyset-batched Aurora samples export with the CPU gate" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+Ryan approved the symlink fix.
+1. Run `mkdir -p ~/.local/bin && ln -s /opt/homebrew/bin/entire ~/.local/bin/entire`. If ~/.local/bin/entire already exists, report it instead of overwriting.
+2. Rerun `~/wevo-quant-training/reference/log/bundle_commit.sh "2026-11-03T21:00:18Z..2026-11-03T21:04:26Z"` with hooks enabled: no --no-verify. It should replace the earlier hook-bypassed catalog commit with one hook-checked bundle commit containing README.md, VERSION, pulse_tags.json, pulse_tag_embeddings.f64, and samples.jsonl.gz, on local-quant-reference-catalog based on origin/feat/local-quant-tags-benchmarks, then force-push with --force-with-lease.
+3. Report the final branch sha and the per-file sizes, and confirm the hooks ran.
