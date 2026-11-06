@@ -1,0 +1,31 @@
+Act as the research sub-agent for this task.
+
+You are on Ryan's MacBook Pro, in /Users/ryanbigelow/source/wevo/repos (wevo-artemis, wevo-customer-api, wevo-pulse, infrastructure, db-migrations). A previous agent on this machine just scoped production quant data with aggregate-only queries; reuse the same read-only access path it found. This is a SCOPING task, not data access.
+
+HARD RULES (same as before):
+- Aggregate metadata only: COUNT, MIN/MAX of dates, length or octet_length percentiles, pg_total_relation_size, reltuples, array_length or vector dimension counts.
+- NEVER select, print, copy, export, or summarize row contents: no names, ids, text, embeddings, or JSON values.
+- Strictly read-only: `SET default_transaction_read_only = on`, statement_timeout of 60 s or less.
+- If anything needs credentials or elevation beyond existing approved read-only access, STOP and report what is needed.
+- Change nothing in repos, infra, or config, and commit nothing.
+
+CONTEXT: Pulse is removing its runtime dependency on customer-api and Artemis for quant scoring, tag detection (Asset / Industry / Product), and benchmarks (percentile of a Pulse's Intuitive / Trusted / Valuable scores within a tag cohort of historical Pulses). To do that offline, Pulse would need reference data snapshots of (1) the tag catalog with embeddings and (2) historical per-Pulse scores with their tag assignments. We need sizes to choose where that data lives (repo file vs S3 vs DB table) and how often to refresh it.
+
+Questions. Answer with numbers and the exact SQL.
+1. Tag catalog: the pulse_tag table (see wevo-artemis src/records/pulse_tag.py, and customer-api models for PulseTag):
+   - total rows, active rows (is_active and deleted_at null), and a breakdown by type (product / industry / asset)
+   - embedding storage type and dimension (for example vector(3072), jsonb array length, or float[]), checked via the column type or array_length on a LIMIT 1 aggregate; do not print values
+   - total table size
+   - how often tags are added or changed: count by month of created_at and updated_at
+2. Tag assignments: the pulse_to_tag table, or whatever links Pulses or sessions to tags:
+   - total rows, the number of distinct Pulses or sessions tagged, and the distribution of tags per Pulse
+3. Benchmark samples: find what customer-api benchmarks.js uses as the cohort source (grep wevo-customer-api/src/services/automated-insight-session/benchmarks.js for _getBenchmarkData and the queries it runs: tables and filters). Then measure:
+   - the number of cohort rows or eligible scored Pulses, by month of created_at
+   - how many have all three tag types, versus partial
+   - cohort size distribution: for the cohorts customer-api computes (product+industry+asset, pairs, singles, global), how many distinct cohorts have at least 10 samples per diagnostic, and the p50 and p90 cohort sizes
+   - the table sizes
+4. The pulse_benchmark table (PulseBenchmark.create in benchmarks.js): row count, by month, and size. Is it read back anywhere at runtime, from the code?
+5. Growth rate: new scored Pulses per week over the last 12 weeks. This sets the refresh cadence.
+6. Governance: does any doc restrict copying the tag catalog or aggregate score samples (no customer content) into another service? Who owns that decision?
+
+Deliverable: a concise report with tables, labeled measured with queries. Include an estimate of the snapshot size in MB for (a) the tag catalog with embeddings and (b) the benchmark samples as compact JSON, with the arithmetic shown and labeled estimate. Confirm that only aggregate queries ran.
