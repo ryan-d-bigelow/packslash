@@ -1,0 +1,14 @@
+Full send on https://linear.app/wevo/issue/WEV-4212
+
+This is an ops ticket with no code. Read the issue and its comment first. The prod correction was done on 2026-11-06: new 252-token pending reservations for Accenture (company 136) Pro studies 8241, 8249, 8250 and 8251 on SOW 36c0050d-5c67-4afb-996b-3bef624dc7ed (reservation ids are in the comment), and insights credits set to 252 on each. The only open checklist item is "Verified in Agreements & Usage for company 136 and confirmed with Elizabeth".
+
+Do this:
+1. Re-verify read-only that each study still has exactly one pending (or, if the study has completed since, committed) reservation at 252. Use the wevo-access admin API `GET https://access.wevo.ai/admin/credit/reservations?companyId=136&limit=500` through an authenticated Manage session (https://manage.wevo.ai; the token is in the localStorage key containing `access.argus`; the status filter is ignored, so filter client-side). Also check Manage > company 136 > the SOW's Agreements & Usage view shows them. Report any drift.
+2. A reply to Elizabeth is already saved as a Slack draft (not sent) in #accenture-success-mgmt, in her thread (channel C09JYJGDBDK, thread ts 1793799512.485099). It explains the fix and asks her to confirm. Sending it is outward-facing: ask Ryan through the question tool whether to send it or leave it for him. Don't send without his yes. If the draft needs updating, say so in the question.
+3. When Elizabeth confirms in that thread, tick the checklist item, add a short closing comment, and move the issue to the team's done state (check the WEVO statuses with list_issue_statuses). If she hasn't confirmed yet, leave it open, say what you're waiting on, and stop.
+
+Constraints: no prod writes. Other threads are handling WEV-4214 (which audits other studies, not these four), WEV-4215 and WEV-4216 in parallel; don't touch those. Report at the end: verification results, Slack status, Linear status, and what's left for humans.
+
+---
+
+still working?
