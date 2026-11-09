@@ -1,0 +1,48 @@
+Full send on https://linear.app/wevo/issue/WEV-4215
+
+Customer recovery is done (Hemant's 2 and Alex's 1 Pulse recovered). wevo-artemis PR #1184 is merged and deployed as Artemis 0.1.41-prod, and it replaced the obsolete Terraform pin artemis:dev-3002393 with 0.1.39-prod. Read the issue and all three comments first. The remaining acceptance work, per the latest comment:
+1. Establish the exact revert mechanism. Kubernetes audit records show HashiCorp Terraform/1.14.0 (service account kube-system:duplo-admin-user) modifying both worker ScaledJobs on 2026-11-05 18:22:36–18:22:52 UTC. Those records are metadata-only, so the image-changing payload isn't proven. Find which apply/commit did it, and make sure it can't re-seed an old image again. The drift-fix commits from 11-04/05 are candidates: wevo-artemis c25944f/0696dc7, infrastructure f0d3308/68cacb6/35ca141.
+2. Verify a brand-new Pulse submission in prod. The runs so far were recoveries of existing Pulses.
+3. Triage the historical DLQ backlog (artemis-tasks-priority-dlq, artemis-task-dlq): find which other users' tasks from 11-05/11-06 failed or expired, and propose recovery.
+
+Prior work is in this thread: <t3-thread://v2/bb63eb9b-8d59-4595-a381-371903899b79/786320ea-4e35-44cb-854d-25f7c557ddb6> (read it with t3_thread_read; don't message it). Evidence files are in /Users/ryanbigelow/source/wevo/repos/output/wev-4215/. Prod access used there: AWS_PROFILE=duplo.argus.wevo.ai, kube contexts `prod` / `release-audit-prod`, namespace duploservices-prod.
+
+Constraints:
+- Read-only prod inspection is fine (kubectl get, audit logs, SQS attributes, read-only DB queries). Anything that changes prod needs Ryan's OK through the question tool first, with the exact action and a rollback. That includes DLQ redrive or replay, failing or editing task rows, submitting a real Pulse (it spends credits), Terraform apply, deploys, and editing ScaledJobs.
+- Prod pulse_db (personas-api pods) has row-level security. Read-only queries return 0 rows silently unless you first run `SELECT set_config('app.is_service_role','true',true)` in the transaction. The Artemis task table lives in the Artemis DB, not customer-api's wevo DB.
+- Any code or Terraform fix goes through a PR in its own git worktree. Never edit the shared repo checkouts in place.
+- Other threads are handling WEV-4214, WEV-4216 and WEV-4212 in parallel. Don't touch those.
+
+Report at the end: findings with evidence, any PRs and merge commits, Linear updates, and anything left for humans.
+
+---
+
+Delegated task node:delegated-task:command%3Amcp%3Ad4172679-e33c-4048-8caa-7045fb2b56d3%3Adelegate-task%3Awev4215-sol-r1 (Sol review WEV-4215 ScaledJob image fix r1) [completed]:
+VERDICT: APPROVE
+
+No findings. The change matches the intended scope, and all three Artemis roots configure matching Kubernetes and kubectl credentials.
+
+Verified formatting and module tests: 26 passed, 0 failed.
+
+---
+
+T3 Code stopped watching pull request #311 (https://github.com/wevo-conversion/infrastructure/pull/311) because it failed to read it from the host 8 times in a row. Check it yourself, and call watch_pull_request to watch it again.
+
+---
+
+Note: the T3 server restarted, and this background work was cancelled before it finished. It will not report back on its own, so resume or restart what you still need and wait for its result:
+- shell: Resume remaining Hemant repairs in background (id bnxp1ymf7)
+
+---
+
+still working?
+
+---
+
+<task-notification>
+<task-id>b2bundz5l</task-id>
+<tool-use-id>toolu_01C1FViDG9qAHHLgaVLcGELi</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-ryanbigelow-source-wevo-repos/831eff23-fdf5-49ac-a083-345c16344bc5/tasks/b2bundz5l.output</output-file>
+<status>completed</status>
+<summary>Background command "Resume Hemant repairs after T3 restart" completed (exit code 0)</summary>
+</task-notification>
